@@ -68,10 +68,6 @@
 			"types": "./src/server/idp-client.ts",
 			"default": "./src/server/idp-client.ts"
 		},
-		"./server/user.repo": {
-			"types": "./src/server/user.repo.ts",
-			"default": "./src/server/user.repo.ts"
-		},
 		"./server/crypto": {
 			"types": "./src/server/crypto.ts",
 			"default": "./src/server/crypto.ts"

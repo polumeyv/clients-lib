@@ -3,7 +3,7 @@ export * from './crypto';
 export * from './customer';
 export * from './error-reporter';
 export * from './idp-client';
-export * from './user.repo';
+export * from './username';
 export * from './postgres';
 export * from './redis';
 export * from './runtime';
