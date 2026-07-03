@@ -83,6 +83,11 @@ export const idpSessionGate = async <T extends JWTPayload>(
 	runtime: ManagedRuntime.ManagedRuntime<IdpClient, unknown>,
 	event: RequestEvent,
 ): Promise<Response | null> => {
+	// `/oauth2/*` must be exempted in `handle` BEFORE this gate: those routes are how sessions get minted and
+	// ended, so gating them is circular — an unauthenticated callback 302s to the IdP, which redirects back to
+	// the callback, forever. Misconfiguration (a new app forgetting the exemption), so fail loud in prod too.
+	if (event.url.pathname.startsWith('/oauth2'))
+		throw new Error(`idpSessionGate ran on ${event.url.pathname} — exempt /oauth2/* in handle before calling the gate`);
 	const auth = await runtime.runPromise(
 		Effect.andThen(IdpClient, (idp) => idp.authenticate<T>(event.cookies.get('access_token'), event.cookies.get('refresh_token'))).pipe(
 			Effect.tap((r) =>

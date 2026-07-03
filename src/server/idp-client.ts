@@ -1,7 +1,7 @@
 import { Context, Data, Effect, Exit, Layer, Option, Result, Schedule, SynchronizedRef, Cause } from 'effect';
 import * as oauth from 'oauth4webapi';
 import { createRemoteJWKSet, jwtVerify, decodeJwt, type JWTPayload } from 'jose';
-import type { HttpStatusError } from '@polumeyv/lib/error';
+import { Redirect, type HttpStatusError } from '../error';
 import type { Cookies } from '@sveltejs/kit';
 import { NoSuchElementError } from 'effect/Cause';
 
@@ -32,6 +32,8 @@ export interface IdpClientOptions {
 	clientId: string;
 	clientSecret: string;
 	redirectUri: string;
+	/** Where the IdP sends the browser after `logout` ends the SSO session — fixed per app, like `redirectUri`. */
+	postLogoutRedirectUri: string;
 	/**
 	 * Per-request cookie access — SvelteKit's `Cookies`, supplied via `() => getRequestEvent().cookies`. The client
 	 * owns the session-cookie names/paths/maxAges (`sessionCookiePolicy`); the app only supplies where cookies live.
@@ -52,7 +54,7 @@ type ResolvedIdp = {
 };
 
 /**
- * Client for talking to *our* IdP (polumeyv-auth): token exchange, refresh, revoke, JWKS verify, authorize-URL.
+ * Client for talking to *our* IdP (polumeyv-auth): token exchange, refresh, revoke, sign-out, JWKS verify, authorize-URL.
  * This is the downstream-app side of the OAuth boundary — not to be confused with `OAuthProviderResolver`, which is the
  * auth app acting as a client of *external* IdPs like Google. Discovery is lazy + self-healing at runtime (see `getResolved`),
  * and validated once at boot via the `ready` probe so a broken IdP fails startup instead of 500'ing requests.
@@ -209,6 +211,33 @@ export class IdpClient extends Context.Service<IdpClient>()('app/IdpClient', {
 			);
 
 		/**
+		 * Full sign-out choreography — the one owner of "sign out of this app": best-effort revoke of the OAuth2
+		 * session (an unreachable IdP must never trap the user in a session they asked to leave, so revoke failures
+		 * are logged and swallowed), clear both token cookies (fixed policy), then `Redirect` 303 to the IdP's
+		 * `/oauth2/logout` with the configured `postLogoutRedirectUri` — revoking the token alone leaves the IdP
+		 * SSO cookie alive, and the next gated navigation would silently re-auth.
+		 *
+		 * Call this from a NATIVE form POST route (`/oauth2/logout` by convention), never a remote function, so the
+		 * browser owns the whole redirect chain: a remote `form`'s client runs `invalidateAll` after the handler,
+		 * which re-fetches the page's authenticated queries against the now-dead session (→ the error boundary) and
+		 * races the cross-origin redirect (→ a same-origin `?reauth` bounce back into the app). `/oauth2/*` is
+		 * exempt from the session gate in every consumer, and `idpSessionGate` enforces that.
+		 */
+		const logout = Effect.suspend(() => {
+			const token = opts.cookies().get('refresh_token');
+			return token
+				? Effect.catch(revoke(token), (e) => Effect.logWarning(`[logout] failed to revoke OAuth2 session: ${e.message}`))
+				: Effect.void;
+		}).pipe(
+			Effect.flatMap(() => {
+				clearTokens();
+				const location = new URL('/oauth2/logout', opts.publicAuthUrl);
+				location.searchParams.set('post_logout_redirect_uri', opts.postLogoutRedirectUri);
+				return new Redirect({ location, status: 303 });
+			}),
+		);
+
+		/**
 		 * End-to-end request authentication, driving the session cookies through the fixed policy:
 		 *   1–2. valid access token → `Result.succeed(user)`.
 		 *   3–4. else refresh succeeds → write the new token cookies, `Result.succeed(user)` from the decoded refresh claims.
@@ -268,6 +297,7 @@ export class IdpClient extends Context.Service<IdpClient>()('app/IdpClient', {
 			handleCallback,
 			revoke,
 			authenticate,
+			logout,
 		};
 	}),
 }) {
