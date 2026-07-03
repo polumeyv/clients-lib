@@ -23,6 +23,7 @@
 	],
 	"scripts": {
 		"check": "tsc --noEmit",
+		"test": "bun test",
 		"generate-jwt-keys": "bun bin/generate-jwt-keys.mjs",
 		"release": "npx changelogen --release --push"
 	},
