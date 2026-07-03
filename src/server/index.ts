@@ -7,6 +7,5 @@ export * from './user.repo';
 export * from './postgres';
 export * from './redis';
 export * from './runtime';
-export * from './shutdown';
 export * from './sms';
 export * from './stripe';
