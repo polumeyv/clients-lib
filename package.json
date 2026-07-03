@@ -41,6 +41,10 @@
 			"types": "./src/error.ts",
 			"default": "./src/error.ts"
 		},
+		"./routes": {
+			"types": "./src/routes.ts",
+			"default": "./src/routes.ts"
+		},
 		"./server": {
 			"types": "./src/server/index.ts",
 			"default": "./src/server/index.ts"

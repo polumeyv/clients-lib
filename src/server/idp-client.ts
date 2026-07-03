@@ -2,6 +2,7 @@ import { Context, Data, Effect, Exit, Layer, Option, Result, Schedule, Synchroni
 import * as oauth from 'oauth4webapi';
 import { createRemoteJWKSet, jwtVerify, decodeJwt, type JWTPayload } from 'jose';
 import { Redirect, type HttpStatusError } from '../error';
+import { AUTH_ROUTES } from '../routes';
 import type { Cookies } from '@sveltejs/kit';
 import { NoSuchElementError } from 'effect/Cause';
 
@@ -231,7 +232,7 @@ export class IdpClient extends Context.Service<IdpClient>()('app/IdpClient', {
 		}).pipe(
 			Effect.flatMap(() => {
 				clearTokens();
-				const location = new URL('/oauth2/logout', opts.publicAuthUrl);
+				const location = new URL(AUTH_ROUTES.oauth2Logout, opts.publicAuthUrl);
 				location.searchParams.set('post_logout_redirect_uri', opts.postLogoutRedirectUri);
 				return new Redirect({ location, status: 303 });
 			}),
