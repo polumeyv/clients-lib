@@ -13,6 +13,8 @@ import type { JWTPayload } from 'jose';
 import { ValidationError, Redirect, resolveError } from '../error';
 import { IdpClient } from '../server/idp-client';
 
+export * from './handle-error';
+
 export interface RunOptions {
 	/** Shape the `error()` body from the resolved failure; default is the bare message. Pro returns `{ code, message }`. */
 	errorBody?: (resolved: ReturnType<typeof resolveError>) => string | { message: string };

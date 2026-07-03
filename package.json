@@ -123,6 +123,10 @@
 		"./kit": {
 			"types": "./src/kit/index.ts",
 			"default": "./src/kit/index.ts"
+		},
+		"./kit/env": {
+			"types": "./src/kit/env.ts",
+			"default": "./src/kit/env.ts"
 		}
 	},
 	"peerDependencies": {
