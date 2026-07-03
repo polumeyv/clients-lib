@@ -20,7 +20,21 @@ export interface RunOptions {
 	errorBody?: (resolved: ReturnType<typeof resolveError>) => string | { message: string };
 	/** Also log non-5xx failures (dev); server faults always log through the runtime so entries render via the app's loggers. */
 	logAll?: boolean;
+	/**
+	 * The app's `getRequestEvent`. When wired, every log emitted inside the handler — and the boundary's own failure
+	 * log — carries `{ reqId, route, method, sub }` and an `http` timing span automatically, so features never
+	 * annotate their own logs. `makeRunner` passes this through; direct `makeRun` callers (auth) pass it explicitly.
+	 */
+	getEvent?: () => RequestEvent;
 }
+
+/** Per-request log context, built once at the boundary from the SvelteKit event. */
+const requestContext = (event: RequestEvent): Record<string, unknown> => ({
+	reqId: crypto.randomUUID(),
+	route: event.route?.id ?? null,
+	method: event.request.method,
+	sub: (event.locals as { user?: { sub?: string } }).user?.sub,
+});
 
 /**
  * Build an app's request boundary over its runtime: accepts a bare Effect or a lazy thunk, returns the success,
@@ -34,10 +48,23 @@ export interface RunOptions {
 export const makeRun =
 	<R, ER>(
 		runtime: ManagedRuntime.ManagedRuntime<R, ER>,
-		{ errorBody = ({ message }: { message: string }) => message, logAll = false }: RunOptions = {},
+		{ errorBody = ({ message }: { message: string }) => message, logAll = false, getEvent }: RunOptions = {},
 	) =>
-	<A>(input: RunInput<A, R>): Promise<A> =>
-		runtime.runPromiseExit(typeof input === 'function' ? Effect.suspend(input) : input).then((exit) => {
+	<A>(input: RunInput<A, R>): Promise<A> => {
+		// Request context is best-effort: `getRequestEvent` throws outside a request scope, so a non-request caller
+		// still runs, just without annotations. When present, it rides both the handler's logs and the failure log.
+		let ctx: Record<string, unknown> | undefined;
+		let effect = typeof input === 'function' ? Effect.suspend(input) : input;
+		if (getEvent) {
+			try {
+				ctx = requestContext(getEvent());
+				effect = effect.pipe(Effect.annotateLogs(ctx), Effect.withLogSpan('http'));
+			} catch {
+				/* not in a request scope — log without context */
+			}
+		}
+
+		return runtime.runPromiseExit(effect).then((exit) => {
 			if (Exit.isSuccess(exit)) return exit.value;
 
 			const err = Cause.squash(exit.cause);
@@ -45,11 +72,19 @@ export const makeRun =
 			if (err instanceof Redirect) return redirect(err.status, err.location);
 
 			const resolved = resolveError(err);
-			if (logAll || resolved.status >= 500)
-				runtime.runFork(Effect.annotateLogs(Effect.logError(resolved.tag, exit.cause), { status: resolved.status }));
+			// 5xx are server faults (Error); 4xx are client faults (Warning) — both visible in prod so nothing a user
+			// hits is silently swallowed. `logAll` (dev) additionally surfaces the sub-400 signals.
+			if (logAll || resolved.status >= 400) {
+				const line =
+					resolved.status >= 500
+						? Effect.logError(resolved.tag, exit.cause)
+						: Effect.logWarning(resolved.tag, exit.cause);
+				runtime.runFork(Effect.annotateLogs(line, { ...ctx, status: resolved.status }));
+			}
 
 			return error(resolved.status, errorBody(resolved) as App.Error);
 		});
+	};
 
 type RunInput<A, R> = Effect.Effect<A, unknown, R> | (() => Effect.Effect<A, unknown, R>);
 
@@ -62,7 +97,7 @@ type RunInput<A, R> = Effect.Effect<A, unknown, R> | (() => Effect.Effect<A, unk
  */
 export const makeRunner =
 	<R, ER, E extends RequestEvent>(runtime: ManagedRuntime.ManagedRuntime<R, ER>, getEvent: () => E, options?: RunOptions) => {
-		const boundary = makeRun(runtime, options);
+		const boundary = makeRun(runtime, { ...options, getEvent });
 		return <A>(input: Effect.Effect<A, any, R> | ((event: E) => Effect.Effect<A, any, R>)): Promise<A> =>
 			boundary(typeof input === 'function' ? () => input(getEvent()) : input);
 	};

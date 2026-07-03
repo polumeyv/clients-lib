@@ -10,11 +10,18 @@
  * disposal on purpose — Vite owns the signals and re-imports this module on HMR, which would stack handlers onto stale
  * runtimes.
  */
-import { Layer, Logger, ManagedRuntime } from 'effect';
+import { Layer, Logger, ManagedRuntime, References } from 'effect';
 import { disposeOnShutdown } from './shutdown';
 
+// One structured JSON line per entry, routed by severity: Error/Fatal → stderr, the rest → stdout (both captured by
+// journald, so `journalctl -p err` isolates faults). Minimum level gates the volume — Debug in dev, Info in prod.
+const LoggerLayer = (dev: boolean) =>
+	Logger.layer([Logger.withLeveledConsole(Logger.formatJson)]).pipe(
+		Layer.provideMerge(Layer.succeed(References.MinimumLogLevel, dev ? 'Debug' : 'Info')),
+	);
+
 export const makeManagedRuntime = <R, ER>(layer: Layer.Layer<R, ER>, dev: boolean): ManagedRuntime.ManagedRuntime<R, ER> => {
-	const runtime = ManagedRuntime.make(Layer.provideMerge(layer, Logger.layer([Logger.consoleJson])));
+	const runtime = ManagedRuntime.make(Layer.provideMerge(layer, LoggerLayer(dev)));
 	if (!dev) disposeOnShutdown(runtime);
 	return runtime;
 };
