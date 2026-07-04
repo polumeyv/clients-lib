@@ -3,6 +3,10 @@ import * as S from 'effect/Schema';
 
 export interface HttpStatusError {
 	readonly statusCode: number;
+	/** Boundary log level for sub-500 failures. Expected-flow signals (`SessionExpiredError`, `Unauthorized`) declare
+	 *  `'Info'` so routine session churn doesn't read as warnings in the journal; unset means `'Warning'`. 5xx always
+	 *  log as Error regardless. */
+	readonly logLevel?: 'Info' | 'Warning';
 }
 // A class may additionally declare `readonly code: ErrorCode` to pin its wire code (e.g. `SessionExpiredError`). It's NOT on
 // the interface on purpose — `PostgresError`/`StripeError` already carry an unrelated `code` (SQLSTATE / Stripe code), so
@@ -42,10 +46,11 @@ type RedirectStatus = 301 | 302 | 303 | 307 | 308;
  * `Effect.fail(new HttpError(...))` instead of `error(...)`.
  */
 export class ValidationError extends Data.TaggedError('ValidationError')<{ readonly message: string }> {}
-export class HttpError extends Data.TaggedError('HttpError')<{ readonly status: number; readonly message: string }> {}
+export class HttpError extends Data.TaggedError('HttpError')<{ readonly status: number; readonly message: string; readonly cause?: unknown }> {}
 export class Unauthorized extends Data.TaggedError('Unauthorized')<{ readonly message: string }> implements HttpStatusError {
 	readonly statusCode = 401 as const;
 	readonly code = 'UNAUTHORIZED' as const;
+	readonly logLevel = 'Info' as const;
 	constructor(message = 'Unauthorized') {
 		super({ message });
 	}
@@ -57,6 +62,7 @@ export class SessionExpiredError
 {
 	readonly statusCode = 401 as const;
 	readonly code = 'SESSION_EXPIRED' as const;
+	readonly logLevel = 'Info' as const;
 	constructor(args: { cause?: unknown; message?: string } = {}) {
 		super({ message: 'Your session has expired, please try again', ...args });
 	}
@@ -89,7 +95,7 @@ const codeFromStatus = (status: number): ErrorCode =>
 						? 'SLOT_TAKEN'
 						: 'INVALID_REQUEST';
 
-export function resolveError(err: unknown): { status: number; message: string; tag: string; code: ErrorCode } {
+export function resolveError(err: unknown): { status: number; message: string; tag: string; code: ErrorCode; logLevel?: 'Info' | 'Warning' } {
 	const e = err as any;
 	const tagInfo = typeof e?._tag === 'string' ? EFFECT_TAG[e._tag] : undefined;
 	const status = typeof e?.statusCode === 'number' ? e.statusCode : typeof e?.status === 'number' ? e.status : (tagInfo?.status ?? 500);
@@ -101,5 +107,6 @@ export function resolveError(err: unknown): { status: number; message: string; t
 		message: e?.message || (Error.isError(e?.cause) ? e.cause.message : '') || 'Something went wrong. Please try again later.',
 		tag: e?._tag ?? 'Defect',
 		code,
+		logLevel: e?.logLevel === 'Info' || e?.logLevel === 'Warning' ? e.logLevel : undefined,
 	};
 }

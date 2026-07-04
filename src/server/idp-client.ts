@@ -131,10 +131,7 @@ export class IdpClient extends Context.Service<IdpClient>()('app/IdpClient', {
 		 */
 		const exchangeCode = <T extends JWTPayload = JWTPayload>(callbackUrl: URL, codeVerifier: string) =>
 			Effect.andThen(
-				Effect.annotateLogs(Effect.logInfo('idp exchangeCode'), {
-					callbackUrl: callbackUrl.toString(),
-					hasVerifier: codeVerifier.length > 0,
-				}),
+				Effect.logInfo('idp exchangeCode', { callbackUrl: callbackUrl.toString(), hasVerifier: codeVerifier.length > 0 }),
 				Effect.flatMap(getResolved, ({ as, client, clientAuth }) =>
 					Effect.tryPromise({
 						try: () =>
@@ -190,15 +187,14 @@ export class IdpClient extends Context.Service<IdpClient>()('app/IdpClient', {
 									return { access_token: t.access_token, refresh_token: t.refresh_token, claims: decodeJwt(t.access_token) as T };
 								}),
 
-						// DEBUG (temporary): keep the real cause as the error message so the tapError below can surface it.
+						// Keep the real cause as the error message so the failure log below can surface it.
 						catch: (cause) => new NoSuchElementError(Error.isError(cause) ? cause.message : String(cause)),
 					}),
 				),
 			).pipe(
-				// DEBUG (temporary): trace the automatic-refresh outcome. A failure here folds to None in `authenticate`,
-				// which then clears the cookies and redirects to the IdP — the sign-out being investigated.
-				Effect.tap(() => Effect.logInfo('idp refresh ok')),
-				Effect.tapError((e) => Effect.logWarning(`idp refresh failed: ${e.message || 'no refresh token'}`)),
+				// A refresh failure folds to None in `authenticate` (cookies cleared, redirect to IdP), so the reason is
+				// lost unless logged here — the one diagnostic for surprise sign-outs.
+				Effect.tapError((e) => Effect.logWarning('idp refresh failed', { reason: e.message || 'no refresh token' })),
 				Effect.catchNoSuchElement,
 			);
 
@@ -227,7 +223,7 @@ export class IdpClient extends Context.Service<IdpClient>()('app/IdpClient', {
 		const logout = Effect.suspend(() => {
 			const token = opts.cookies().get('refresh_token');
 			return token
-				? Effect.catch(revoke(token), (e) => Effect.logWarning(`[logout] failed to revoke OAuth2 session: ${e.message}`))
+				? Effect.catch(revoke(token), (e) => Effect.logWarning('logout revoke failed', { reason: e.message }))
 				: Effect.void;
 		}).pipe(
 			Effect.flatMap(() => {

@@ -65,7 +65,7 @@ export class StripeCustomerService extends Context.Service<StripeCustomerService
 			).pipe(
 				Effect.catchTag('StripeError', (e) =>
 					Effect.andThen(
-						Effect.all([Effect.logWarning('[CustomerService] customer creation failed', e), cacheRaw(user.sub, null)]),
+						Effect.all([Effect.logWarning('stripe customer creation failed', e), cacheRaw(user.sub, null)]),
 						Effect.fail(new Cause.NoSuchElementError('Our payment provider was temporarily unavailable — please try again shortly.')),
 					),
 				),

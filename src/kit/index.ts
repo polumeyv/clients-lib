@@ -28,9 +28,16 @@ export interface RunOptions {
 	getEvent?: () => RequestEvent;
 }
 
+/** One reqId per HTTP request: minted on first use and stashed on `locals`, so a hook log (the IdP gate) and the
+ *  handler's logs carry the same id and correlate in the journal. */
+const requestId = (event: RequestEvent): string => {
+	const locals = event.locals as { reqId?: string };
+	return (locals.reqId ??= crypto.randomUUID());
+};
+
 /** Per-request log context, built once at the boundary from the SvelteKit event. */
 const requestContext = (event: RequestEvent): Record<string, unknown> => ({
-	reqId: crypto.randomUUID(),
+	reqId: requestId(event),
 	route: event.route?.id ?? null,
 	method: event.request.method,
 	sub: (event.locals as { user?: { sub?: string } }).user?.sub,
@@ -73,12 +80,16 @@ export const makeRun =
 
 			const resolved = resolveError(err);
 			// 5xx are server faults (Error); 4xx are client faults (Warning) — both visible in prod so nothing a user
-			// hits is silently swallowed. `logAll` (dev) additionally surfaces the sub-400 signals.
+			// hits is silently swallowed. Expected-flow signals (`logLevel: 'Info'` on the error class, e.g. session
+			// expiry) drop to Info so routine churn doesn't read as warnings. `logAll` (dev) additionally surfaces the
+			// sub-400 signals.
 			if (logAll || resolved.status >= 400) {
 				const line =
 					resolved.status >= 500
 						? Effect.logError(resolved.tag, exit.cause)
-						: Effect.logWarning(resolved.tag, exit.cause);
+						: resolved.logLevel === 'Info'
+							? Effect.logInfo(resolved.tag, exit.cause)
+							: Effect.logWarning(resolved.tag, exit.cause);
 				runtime.runFork(Effect.annotateLogs(line, { ...ctx, status: resolved.status }));
 			}
 
@@ -130,6 +141,7 @@ export const idpSessionGate = async <T extends JWTPayload>(
 			Effect.tap((r) =>
 				Result.isFailure(r)
 					? Effect.annotateLogs(Effect.logInfo('idp no usable session → redirect to IdP'), {
+							reqId: requestId(event),
 							fromHost: event.url.host,
 							to: new URL(r.failure).origin,
 						})

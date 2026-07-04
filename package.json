@@ -124,6 +124,14 @@
 		"./kit/env": {
 			"types": "./src/kit/env.ts",
 			"default": "./src/kit/env.ts"
+		},
+		"./kit/client-error": {
+			"types": "./src/kit/client-error.ts",
+			"default": "./src/kit/client-error.ts"
+		},
+		"./kit/report-client-error": {
+			"types": "./src/kit/report-client-error.ts",
+			"default": "./src/kit/report-client-error.ts"
 		}
 	},
 	"peerDependencies": {

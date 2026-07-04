@@ -1,11 +1,11 @@
 const reported = new Set<string>();
 setInterval(() => reported.clear(), 5 * 60 * 1000);
 
-export function reportError(opts: { repo: string; token: string; error: unknown; route: string | null; url: string; status: number }) {
-	if (opts.status === 404) return;
-	const id = Bun.randomUUIDv7();
+/** File/comment a deduped GitHub issue for a production fault. The journal line is NOT written here — the caller
+ *  (`makeHandleServerError`) logs it structured through the app runtime and passes the same `id` for correlation. */
+export function reportError(opts: { repo: string; token: string; error: unknown; route: string | null; url: string; status: number; id?: string }) {
+	const id = opts.id ?? Bun.randomUUIDv7();
 	const err = Error.isError(opts.error) ? opts.error : new Error(String(opts.error));
-	console.error(`[server-error] ${id}`, err);
 
 	const title = `[Production Error] ${err.message.slice(0, 120)}`;
 	if (reported.has(title)) return;

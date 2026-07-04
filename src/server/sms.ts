@@ -32,7 +32,7 @@ export class SmsService extends Context.Service<SmsService>()('SmsService', {
 
 		const send = ({ to, message }: { to: string; message: string }): Effect.Effect<{ success: boolean }, SmsError> =>
 			!config.enabled
-				? Effect.as(Effect.logInfo(`[DEV] Skipped SMS to ${to}: ${message.slice(0, 50)}`), { success: false })
+				? Effect.as(Effect.logInfo('sms skipped (dev)', { to, preview: message.slice(0, 50) }), { success: false })
 				: Effect.tryPromise({
 						// `tryPromise` hands us an AbortSignal wired to fiber interruption — thread it into fetch so the
 						// timeout below actually aborts the request instead of leaving it running in the background.
@@ -58,7 +58,8 @@ export class SmsService extends Context.Service<SmsService>()('SmsService', {
 						catch: (e) => new SmsError({ cause: e, message: `Failed to send SMS to ${to}` }),
 					}).pipe(
 						Effect.timeoutOrElse({ duration: '10 seconds', orElse: () => new SmsError({ message: `Telnyx timed out sending to ${to}` }) }),
-						Effect.tapError((e) => Effect.logError(`[SMS] ${e.cause}`)),
+						// Callers fold SMS failures into a result flag (never rethrow), so this is the one place the cause is visible.
+						Effect.tapError((e) => Effect.logError('sms send failed', { cause: e.cause })),
 					);
 
 		return { send };

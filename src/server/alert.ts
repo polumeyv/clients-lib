@@ -58,7 +58,7 @@ export class AlertService extends Context.Service<AlertService>()('AlertService'
 
 		const send = (email: EmailInput): Effect.Effect<void, AlertError> =>
 			!config.enabled
-				? Effect.asVoid(Effect.logInfo(`[DEV] Skipped email to ${email.to}: ${email.subject}`))
+				? Effect.asVoid(Effect.logInfo('email skipped (dev)', { to: email.to, subject: email.subject }))
 				: Effect.tryPromise({
 						try: () =>
 							client.send(
@@ -78,7 +78,8 @@ export class AlertService extends Context.Service<AlertService>()('AlertService'
 						catch: (cause) => new AlertError({ cause }),
 					}).pipe(
 						Effect.asVoid,
-						Effect.tapError((e) => Effect.logError('[SES]', e)),
+						// Some callers deliberately swallow alert failures (notification fan-outs), so log the cause here.
+						Effect.tapError((e) => Effect.logError('email send failed', e)),
 					);
 
 		return { send };

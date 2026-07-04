@@ -103,12 +103,12 @@ export const handleStripeWebhook = <Ret extends Effect.Effect<any, any, any>>(
 							.pipe(Effect.mapError(() => new Cause.IllegalArgumentError('Webhook signature verification failed')))
 					: Effect.fail(new Cause.IllegalArgumentError('Missing stripe-signature header'));
 			}),
-			Effect.tap((event) => Effect.logInfo('[stripe:webhook]', event.type, event.id)),
+			Effect.tap((event) => Effect.logInfo('stripe webhook received', { type: event.type, id: event.id })),
 			Effect.flatMap((event) => {
 				// Collapse the per-branch Effect union a switch-based dispatch infers — assignment unions E/R where
 				// generic inference would pin them to the first branch.
 				const handled = dispatch(event) as Effect.Effect<Effect.Success<Ret>, Effect.Error<Ret>, Effect.Services<Ret>>;
-				return Effect.tapCause(handled, (cause) => Effect.logError('[stripe:webhook] ' + event.type, cause));
+				return Effect.tapCause(handled, (cause) => Effect.logError('stripe webhook handler failed', { type: event.type }, cause));
 			}),
 		),
 	);
