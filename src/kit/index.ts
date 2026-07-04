@@ -12,6 +12,7 @@ import { error, invalid, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { JWTPayload } from 'jose';
 import { ValidationError, Redirect, resolveError } from '../error';
 import { IdpClient } from '../server/idp-client';
+import { reportError } from '../server/error-reporter';
 
 export * from './handle-error';
 
@@ -26,6 +27,14 @@ export interface RunOptions {
 	 * annotate their own logs. `makeRunner` passes this through; direct `makeRun` callers (auth) pass it explicitly.
 	 */
 	getEvent?: () => RequestEvent;
+	/**
+	 * GitHub-issue sink for Effect-path 5xx — the same deduped `reportError` the render-crash `handleError` hook
+	 * uses, so every server fault files/annotates an issue regardless of which path it took. The journal line and
+	 * the issue share an `id` annotation. An empty `token` (dev .env) disables the sink; 4xx never report.
+	 */
+	issues?: { repo: string; token: string };
+	/** Test seam for the issue reporter. */
+	report?: typeof reportError;
 }
 
 /** One reqId per HTTP request: minted on first use and stashed on `locals`, so a hook log (the IdP gate) and the
@@ -55,16 +64,19 @@ const requestContext = (event: RequestEvent): Record<string, unknown> => ({
 export const makeRun =
 	<R, ER>(
 		runtime: ManagedRuntime.ManagedRuntime<R, ER>,
-		{ errorBody = ({ message }: { message: string }) => message, logAll = false, getEvent }: RunOptions = {},
+		{ errorBody = ({ message }: { message: string }) => message, logAll = false, getEvent, issues, report = reportError }: RunOptions = {},
 	) =>
 	<A>(input: RunInput<A, R>): Promise<A> => {
 		// Request context is best-effort: `getRequestEvent` throws outside a request scope, so a non-request caller
 		// still runs, just without annotations. When present, it rides both the handler's logs and the failure log.
 		let ctx: Record<string, unknown> | undefined;
+		let reqUrl: string | undefined;
 		let effect = typeof input === 'function' ? Effect.suspend(input) : input;
 		if (getEvent) {
 			try {
-				ctx = requestContext(getEvent());
+				const event = getEvent();
+				ctx = requestContext(event);
+				reqUrl = `${event.url.pathname}${event.url.search}`;
 				effect = effect.pipe(Effect.annotateLogs(ctx), Effect.withLogSpan('http'));
 			} catch {
 				/* not in a request scope — log without context */
@@ -79,6 +91,21 @@ export const makeRun =
 			if (err instanceof Redirect) return redirect(err.status, err.location);
 
 			const resolved = resolveError(err);
+			// A 5xx also files/annotates the deduped GitHub issue (prod; empty token disables) — the same sink the
+			// render-crash hook uses — and the shared `id` correlates the journal line with the issue.
+			let issueId: string | undefined;
+			if (issues?.token && resolved.status >= 500) {
+				issueId = Bun.randomUUIDv7();
+				report({
+					repo: issues.repo,
+					token: issues.token,
+					error: err,
+					status: resolved.status,
+					route: (ctx?.route as string | null) ?? null,
+					url: reqUrl ?? '',
+					id: issueId,
+				});
+			}
 			// 5xx are server faults (Error); 4xx are client faults (Warning) — both visible in prod so nothing a user
 			// hits is silently swallowed. Expected-flow signals (`logLevel: 'Info'` on the error class, e.g. session
 			// expiry) drop to Info so routine churn doesn't read as warnings. `logAll` (dev) additionally surfaces the
@@ -90,7 +117,7 @@ export const makeRun =
 						: resolved.logLevel === 'Info'
 							? Effect.logInfo(resolved.tag, exit.cause)
 							: Effect.logWarning(resolved.tag, exit.cause);
-				runtime.runFork(Effect.annotateLogs(line, { ...ctx, status: resolved.status }));
+				runtime.runFork(Effect.annotateLogs(line, { ...ctx, status: resolved.status, ...(issueId ? { id: issueId } : {}) }));
 			}
 
 			return error(resolved.status, errorBody(resolved) as App.Error);
