@@ -208,6 +208,7 @@ export const Businesses = S.Struct({
 	website: S.NullOr(varchar(500)),
 	phone: S.NullOr(varchar(50)),
 	email: S.NullOr(varchar(255)),
+	notify_email: S.NullOr(varchar(255)),
 	tz: TIMEZONE,
 	status: S.Number, // SMALLINT bitfield: IS_ACTIVE=1, IS_VERIFIED=2, IS_FEATURED=4, IS_SUSPENDED=8
 	source: varchar(20),

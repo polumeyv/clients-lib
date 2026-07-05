@@ -51,7 +51,7 @@ export const makePostgres = (config: PostgresConfig) =>
 						database: config.database,
 						username: config.username,
 						password: config.password,
-						idleTimeout: 10,
+						idleTimeout: 300,
 						max: 20,
 						...(config.searchPath ? { connection: { search_path: config.searchPath } } : {}),
 					}),

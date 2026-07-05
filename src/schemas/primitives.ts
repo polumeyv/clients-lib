@@ -59,6 +59,7 @@ export const Name = S.NonEmptyString.check(S.isMaxLength(60));
 export type Name = typeof Name.Type;
 
 export const Slug = S.String.pipe(S.check(S.isPattern(/^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/)));
+export type Slug = typeof Slug.Type;
 
 export const Domain = S.String.pipe(S.check(S.isPattern(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/)));
 
