@@ -15,6 +15,7 @@
  * See `./tables` for how these compose into table rows, and `./projections` for the groupings on top.
  */
 import * as S from 'effect/Schema';
+import { SchemaTransformation } from 'effect';
 
 /** UUID string. The base for every id column; `UserSub` brands the subset that references `users(sub)`. */
 export const Uuid = S.String.check(S.isUUID());
@@ -30,6 +31,10 @@ export type UserSub = typeof UserSub.Type;
 
 /** `VARCHAR(n)` — a string capped at `n` characters (the only thing the DB validates on a free varchar). */
 export const varchar = (n: number) => S.String.check(S.isMaxLength(n));
+
+/** Optional env/string input decoded to a required string with a named fallback. */
+export const StringWithFallback = (fallback: string) =>
+	S.UndefinedOr(S.String).pipe(S.decodeTo(S.String, SchemaTransformation.transform({ decode: (v) => v ?? fallback, encode: (v) => v })));
 
 /** Integer USD cents — the canonical storage/compute unit for money. Brand a money column with this so a whole-dollars
  *  value can't be passed where cents are expected; the dollars↔cents conversion lives in the `Dollars` form codec and the
